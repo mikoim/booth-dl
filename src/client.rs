@@ -394,6 +394,7 @@ mod tests {
         assert_eq!(client.booth_url(), "http://127.0.0.1:8765");
         assert_eq!(client.accounts_url(), "http://127.0.0.1:8765");
         assert_eq!(client.page_interval, Duration::ZERO);
+        // Without proxy variables set, this holds even without `.proxy(None)`; running the suite with HTTP_PROXY set is what proves the bypass.
         assert!(client.agent.config().proxy().is_none());
     }
 
@@ -410,6 +411,7 @@ mod tests {
     #[test]
     fn test_clients_ignore_proxy_variables() {
         let client = BoothClient::for_test("s", "http://127.0.0.1:1");
+        // Without proxy variables set, this holds even without `.proxy(None)`; running the suite with HTTP_PROXY set is what proves the bypass.
         assert!(client.agent.config().proxy().is_none());
     }
 
