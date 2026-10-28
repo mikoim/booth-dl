@@ -1,8 +1,10 @@
+use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 
 use booth_dl::browser::{self, Browser};
 use booth_dl::client::{BoothClient, Fatal};
@@ -48,6 +50,12 @@ enum Command {
         #[arg(long, default_value = ".")]
         out: PathBuf,
     },
+    /// Print a shell completion script
+    Completions {
+        /// Shell to generate the script for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() -> ExitCode {
@@ -78,6 +86,10 @@ fn run(cli: Cli) -> Result<bool> {
             check_updates,
         }),
         Command::Verify { out } => verify_command(&out),
+        Command::Completions { shell } => {
+            write_completions(shell, &mut io::stdout());
+            Ok(true)
+        }
     }
 }
 
@@ -152,6 +164,11 @@ fn verify_command(out: &std::path::Path) -> Result<bool> {
     Ok(summary.problems.is_empty())
 }
 
+/// Writes the completion script for `shell`, generated from the CLI definition.
+fn write_completions(shell: Shell, out: &mut dyn io::Write) {
+    clap_complete::generate(shell, &mut Cli::command(), "booth-dl", out);
+}
+
 fn print_list(title: &str, lines: &[String]) {
     if lines.is_empty() {
         return;
@@ -159,5 +176,71 @@ fn print_list(title: &str, lines: &[String]) {
     println!("{title}:");
     for line in lines {
         println!("  {line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::ValueEnum;
+
+    use super::*;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn parses_the_completions_command() {
+        let cli = Cli::try_parse_from(["booth-dl", "completions", "powershell"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Completions {
+                shell: Shell::PowerShell
+            }
+        ));
+    }
+
+    #[test]
+    fn completion_scripts_cover_every_command_and_option() {
+        for shell in Shell::value_variants() {
+            let mut script = Vec::new();
+            write_completions(*shell, &mut script);
+            let script = String::from_utf8(script).unwrap();
+            // Long options without dashes: fish spells them `-l from-browser`.
+            for word in [
+                "login",
+                "sync",
+                "verify",
+                "completions",
+                "from-browser",
+                "check-updates",
+            ] {
+                assert!(script.contains(word), "{shell} script lacks {word}");
+            }
+        }
+    }
+
+    /// clap_complete 4.6.1 and later name the bash `case` labels differently from
+    /// the `cmd` values for a hyphenated binary name, which breaks completion after
+    /// a subcommand (`booth-dl sync --<TAB>`).
+    #[test]
+    fn bash_script_has_a_case_for_every_command() {
+        let mut script = Vec::new();
+        write_completions(Shell::Bash, &mut script);
+        let script = String::from_utf8(script).unwrap();
+        let labels: Vec<&str> = script
+            .lines()
+            .filter_map(|line| line.trim().strip_suffix(')'))
+            .collect();
+        let commands = script.lines().filter_map(|line| {
+            line.trim()
+                .strip_prefix("cmd=\"")
+                .and_then(|rest| rest.strip_suffix('"'))
+                .filter(|name| !name.is_empty())
+        });
+        for command in commands {
+            assert!(labels.contains(&command), "no bash case for {command}");
+        }
     }
 }

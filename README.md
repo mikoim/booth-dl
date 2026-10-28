@@ -25,6 +25,18 @@ Each item is stored as `<shop>/<item id>_<item name>/` with `files/`, `images/`,
 
 The session cookie gives access to your BOOTH account. Keep it private.
 
+## Shell completion
+
+`booth-dl completions <shell>` prints a completion script for `bash`, `fish`, `powershell`, `zsh` or `elvish`.
+
+- bash: `booth-dl completions bash > ~/.local/share/bash-completion/completions/booth-dl` (needs the bash-completion package)
+- fish: `booth-dl completions fish > ~/.config/fish/completions/booth-dl.fish`
+- PowerShell: add `booth-dl completions powershell | Out-String | Invoke-Expression` to your `$PROFILE`
+- zsh: save `booth-dl completions zsh` as `_booth-dl` in a directory on your `$fpath`
+- elvish: add `eval (booth-dl completions elvish | slurp)` to `~/.config/elvish/rc.elv`
+
+Subcommands and options complete in every shell. fish does not complete the shell name after `completions`, and PowerShell does not complete option values such as the browser after `--from-browser`.
+
 ## License
 
 Licensed under either of

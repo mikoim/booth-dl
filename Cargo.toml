@@ -9,6 +9,11 @@ aes = "0.9.3"
 anyhow = "1.0.104"
 cbc = "0.2.1"
 clap = { version = "4.6.7", features = ["derive"] }
+# Pinned: 4.6.1 through 4.6.11 (and clap's main branch as of 2026-10-29) generate bash
+# completion whose `case` labels don't match a hyphenated binary name like
+# `booth-dl`, so nothing after the subcommand completes. Unpin once
+# `bash_script_has_a_case_for_every_command` passes with a newer release.
+clap_complete = "=4.6.0"
 dirs = "7.0.0"
 flate2 = "1.1.10"
 indicatif = "0.18.6"
