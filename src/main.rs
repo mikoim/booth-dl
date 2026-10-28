@@ -4,6 +4,7 @@ use std::process::ExitCode;
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
+use booth_dl::browser::{self, Browser};
 use booth_dl::client::{BoothClient, Fatal};
 use booth_dl::config::{self, SESSION_COOKIE};
 use booth_dl::library::Tab;
@@ -20,7 +21,15 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Store the BOOTH session cookie
-    Login,
+    Login {
+        /// Read the cookie from this browser instead of asking for it
+        #[arg(long, value_enum)]
+        from_browser: Option<Browser>,
+        /// Browser profile to read: a Firefox profile name or directory, or a
+        /// Chrome-family profile directory such as "Default"
+        #[arg(long, requires = "from_browser")]
+        profile: Option<String>,
+    },
     /// Download everything in the library that is not downloaded yet
     Sync {
         /// Output directory
@@ -55,7 +64,10 @@ fn main() -> ExitCode {
 /// Returns whether everything succeeded.
 fn run(cli: Cli) -> Result<bool> {
     match cli.command {
-        Command::Login => login().map(|()| true),
+        Command::Login {
+            from_browser,
+            profile,
+        } => login(from_browser, profile.as_deref()).map(|()| true),
         Command::Sync {
             out,
             jobs,
@@ -69,10 +81,23 @@ fn run(cli: Cli) -> Result<bool> {
     }
 }
 
-fn login() -> Result<()> {
-    let input =
-        rpassword::prompt_password(format!("Paste the value of the {SESSION_COOKIE} cookie: "))?;
-    let value = config::normalize_session_input(&input);
+fn login(from_browser: Option<Browser>, profile: Option<&str>) -> Result<()> {
+    let value = match from_browser {
+        Some(browser) => {
+            let found = browser::find_session(browser, profile)?;
+            println!(
+                "Found the BOOTH session in {browser} profile \"{}\".",
+                found.profile
+            );
+            found.value
+        }
+        None => {
+            let input = rpassword::prompt_password(format!(
+                "Paste the value of the {SESSION_COOKIE} cookie: "
+            ))?;
+            config::normalize_session_input(&input)
+        }
+    };
     if value.is_empty() {
         bail!("no value entered");
     }
@@ -80,7 +105,8 @@ fn login() -> Result<()> {
     if let Err(e) = client.get_text(&Tab::Purchases.url(client.accounts_url(), 1)) {
         if matches!(e.downcast_ref::<Fatal>(), Some(Fatal::SessionExpired)) {
             bail!(
-                "BOOTH rejected this cookie; copy the current {SESSION_COOKIE} value from your browser and try again"
+                "BOOTH rejected this cookie; log in to BOOTH in your browser and try again \
+                 (or paste the current {SESSION_COOKIE} value with `booth-dl login`)"
             );
         }
         return Err(e);

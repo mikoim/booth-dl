@@ -9,9 +9,12 @@ Mirror the digital items in your [BOOTH](https://booth.pm/) library to a local d
 
 ## Usage
 
-1. Log in to BOOTH in your browser. Open the developer tools (Application or Storage → Cookies → `https://booth.pm`) and copy the value of the `_plaza_session_nktz7u` cookie.
-2. Run `booth-dl login` and paste the value.
-   - It is stored in `~/.config/booth-dl/session` (Linux) or `%APPDATA%\booth-dl\session` (Windows).
+1. Log in to BOOTH in your browser.
+2. Run `booth-dl login --from-browser <browser>` to read the session cookie from that browser.
+   - Browsers: `firefox` (Linux and Windows); `chrome`, `chromium`, `brave` and `edge` (Linux only, using `secret-tool` from libsecret to unlock the cookie).
+   - Every profile is searched and the most recently used session wins. `--profile <name>` limits the search to one profile.
+   - Alternatively, run `booth-dl login` and paste the value of the `_plaza_session_nktz7u` cookie. You can copy it from the developer tools: Application or Storage → Cookies → `https://booth.pm`.
+   - The session is stored in `~/.config/booth-dl/session` (Linux) or `%APPDATA%\booth-dl\session` (Windows).
    - The `BOOTH_SESSION` environment variable overrides it.
 3. Run `booth-dl sync --out ~/BOOTH`.
    - `--jobs N` (1–4, default 2) sets the number of parallel downloads.
