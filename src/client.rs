@@ -68,14 +68,19 @@ pub struct BoothClient {
 impl BoothClient {
     /// A client for booth.pm, or for the loopback server named by [`BASE_URL_ENV`].
     pub fn new(session: String) -> Result<BoothClient> {
+        Self::from_env_value(session, env::var(BASE_URL_ENV))
+    }
+
+    fn from_env_value(session: String, value: Result<String, VarError>) -> Result<BoothClient> {
         let retry_delay = Duration::from_secs(2);
-        match env::var(BASE_URL_ENV) {
+        match value {
             Err(VarError::NotPresent) => Ok(Self::build(
                 session,
                 BOOTH_URL,
                 ACCOUNTS_URL,
                 Duration::from_secs(1),
                 retry_delay,
+                false,
             )),
             Err(VarError::NotUnicode(_)) => Err(base_url_error()),
             Ok(value) => {
@@ -87,6 +92,7 @@ impl BoothClient {
                     &base,
                     Duration::ZERO,
                     retry_delay,
+                    true,
                 ))
             }
         }
@@ -101,24 +107,30 @@ impl BoothClient {
             base_url,
             Duration::ZERO,
             Duration::ZERO,
+            true,
         )
     }
 
+    /// `direct` connects without proxies; used for local servers, whose traffic
+    /// (cookie included) must never go through HTTP_PROXY and friends.
     fn build(
         session: String,
         booth_url: &str,
         accounts_url: &str,
         page_interval: Duration,
         retry_delay: Duration,
+        direct: bool,
     ) -> BoothClient {
-        let agent = ureq::Agent::config_builder()
+        let mut config = ureq::Agent::config_builder()
             .max_redirects(0)
             .http_status_as_error(false)
             .user_agent(USER_AGENT)
             .timeout_connect(Some(Duration::from_secs(30)))
-            .timeout_per_read(Some(Duration::from_secs(60)))
-            .build()
-            .into();
+            .timeout_per_read(Some(Duration::from_secs(60)));
+        if direct {
+            config = config.proxy(None);
+        }
+        let agent = config.build().into();
         BoothClient {
             agent,
             booth_url: booth_url.to_string(),
@@ -368,15 +380,37 @@ mod tests {
     }
 
     #[test]
-    fn new_targets_booth_pm_by_default() {
-        // Mutating the environment is unsafe in tests that run in parallel, so
-        // this only checks the default when the variable is not set.
-        if env::var_os(BASE_URL_ENV).is_some() {
-            return;
-        }
-        let client = BoothClient::new("s".into()).unwrap();
+    fn default_client_targets_booth_pm() {
+        let client = BoothClient::from_env_value("s".into(), Err(VarError::NotPresent)).unwrap();
         assert_eq!(client.booth_url(), "https://booth.pm");
         assert_eq!(client.accounts_url(), "https://accounts.booth.pm");
+        assert_eq!(client.page_interval, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn loopback_client_connects_directly() {
+        let client =
+            BoothClient::from_env_value("s".into(), Ok("http://127.0.0.1:8765/".into())).unwrap();
+        assert_eq!(client.booth_url(), "http://127.0.0.1:8765");
+        assert_eq!(client.accounts_url(), "http://127.0.0.1:8765");
+        assert_eq!(client.page_interval, Duration::ZERO);
+        assert!(client.agent.config().proxy().is_none());
+    }
+
+    #[test]
+    fn non_unicode_base_url_is_rejected() {
+        let value = Err(VarError::NotUnicode(std::ffi::OsString::from("x")));
+        let err = BoothClient::from_env_value("s".into(), value)
+            .err()
+            .expect("non-unicode value must be rejected")
+            .to_string();
+        assert!(err.contains("loopback URL"), "{err}");
+    }
+
+    #[test]
+    fn test_clients_ignore_proxy_variables() {
+        let client = BoothClient::for_test("s", "http://127.0.0.1:1");
+        assert!(client.agent.config().proxy().is_none());
     }
 
     #[test]
