@@ -78,7 +78,7 @@ fn find_in_root(
         let Some(db) = cookie_db(&root.join(name)) else {
             continue;
         };
-        for row in read_rows(&db)? {
+        for row in read_rows(&db).with_context(|| format!("read cookies from {}", db.display()))? {
             let value = if !row.value.is_empty() {
                 row.value
             } else {
@@ -92,7 +92,8 @@ fn find_in_root(
                     }
                     _ => b"peanuts".as_slice(),
                 };
-                let plain = decrypt(&row.encrypted, password, row.version, &row.host)?;
+                let plain = decrypt(&row.encrypted, password, row.version, &row.host)
+                    .with_context(|| format!("{browser} profile \"{name}\""))?;
                 String::from_utf8_lossy(&plain).into_owned()
             };
             candidates.push(Candidate {
@@ -164,8 +165,7 @@ fn read_rows(db: &Path) -> Result<Vec<Row>> {
         .saturating_mul(1_000_000);
     let mut result = Vec::new();
     for row in rows {
-        let (host, value, encrypted, last_access, expires) =
-            row.with_context(|| format!("read cookies from {}", db.display()))?;
+        let (host, value, encrypted, last_access, expires) = row?;
         // `expires_utc == 0` marks a session cookie, which never expires on disk.
         if expires != 0 && expires - CHROME_EPOCH_OFFSET_US <= now_us {
             continue;
@@ -181,6 +181,11 @@ fn read_rows(db: &Path) -> Result<Vec<Row>> {
     Ok(result)
 }
 
+/// PBKDF2-HMAC-SHA1(password, "saltysalt", 1 iteration) -> AES-128 key.
+fn derive_key(password: &[u8]) -> [u8; 16] {
+    pbkdf2::pbkdf2_hmac_array::<sha1::Sha1, 16>(password, b"saltysalt", 1)
+}
+
 /// Decrypts a `v10`/`v11` `encrypted_value` with the given password.
 fn decrypt(encrypted: &[u8], password: &[u8], version: i64, host: &str) -> Result<Vec<u8>> {
     let (prefix, ciphertext) = encrypted.split_at(encrypted.len().min(3));
@@ -193,7 +198,7 @@ fn decrypt(encrypted: &[u8], password: &[u8], version: i64, host: &str) -> Resul
     if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
         bail!("unsupported cookie format (bad ciphertext length)");
     }
-    let key = pbkdf2::pbkdf2_hmac_array::<sha1::Sha1, 16>(password, b"saltysalt", 1);
+    let key = derive_key(password);
     let mut buf = ciphertext.to_vec();
     let plain = Aes128CbcDec::new(&key.into(), &IV.into())
         .decrypt_padded::<Pkcs7>(&mut buf)
@@ -259,7 +264,7 @@ mod tests {
             plain.extend_from_slice(&Sha256::digest(host.as_bytes()));
         }
         plain.extend_from_slice(value);
-        let key = pbkdf2::pbkdf2_hmac_array::<sha1::Sha1, 16>(password, b"saltysalt", 1);
+        let key = derive_key(password);
         let len = plain.len();
         plain.resize(len + 16 - len % 16, 0);
         let ciphertext = Aes128CbcEnc::new(&key.into(), &IV.into())
@@ -325,6 +330,15 @@ mod tests {
 
     fn no_keyring() -> Result<Vec<u8>> {
         panic!("keyring must not be used")
+    }
+
+    #[test]
+    fn v10_key_matches_the_known_value() {
+        let hex: String = derive_key(b"peanuts")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(hex, "fd621fe5a2b402539dfa147ca9272778");
     }
 
     #[test]
@@ -456,6 +470,6 @@ mod tests {
         let err = find_in_root(Browser::Chrome, root.path(), Some("Profile 9"), no_keyring)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("available: Default"), "{err}");
+        assert!(err.ends_with("available: Default"), "{err}");
     }
 }
