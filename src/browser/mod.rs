@@ -8,7 +8,8 @@ mod chromium;
 mod firefox;
 
 use std::fmt;
-use std::fs;
+use std::fs::{self, File};
+use std::io;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -119,24 +120,38 @@ fn is_cookie_value(value: &str) -> bool {
 }
 
 /// A private, writable copy of a browser's SQLite database. The browser may
-/// hold a lock on the original and keep recent writes in its `-wal` file.
+/// hold a lock on the original and keep recent writes in its `-wal` file (or
+/// an unfinished transaction in its `-journal` file).
 struct DbCopy {
     // Field order matters: the connection must close before the directory is removed.
     conn: Connection,
     _dir: TempDir,
 }
 
+fn copy_file(source: &Path, target: &Path) -> io::Result<()> {
+    io::copy(&mut File::open(source)?, &mut File::create(target)?)?;
+    Ok(())
+}
+
 fn open_copy(db: &Path) -> Result<DbCopy> {
-    let dir = tempfile::tempdir().context("create a temporary directory")?;
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let dir = builder.tempdir().context("create a temporary directory")?;
     let name = db.file_name().context("database path has no file name")?;
-    for suffix in ["", "-wal", "-shm"] {
+    for suffix in ["", "-wal", "-shm", "-journal"] {
         let mut source = db.as_os_str().to_os_string();
         source.push(suffix);
         let source = Path::new(&source);
         if source.exists() {
             let mut target = name.to_os_string();
             target.push(suffix);
-            fs::copy(source, dir.path().join(target))
+            // Plain open + copy (not `fs::copy`): std opens with full sharing,
+            // so a running browser on Windows cannot block the read.
+            copy_file(source, &dir.path().join(target))
                 .with_context(|| format!("copy {}", source.display()))?;
         }
     }
@@ -212,6 +227,30 @@ mod tests {
             .unwrap();
         assert_eq!(v, "in-wal");
         drop(conn);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temp_copy_is_private_and_removed_on_drop() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("Cookies");
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch("CREATE TABLE t (v TEXT);")
+            .unwrap();
+
+        let copy = open_copy(&db).unwrap();
+        let copy_dir = Path::new(copy.conn.path().unwrap())
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let mode = fs::metadata(&copy_dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{mode:o}");
+
+        drop(copy);
+        assert!(!copy_dir.exists());
     }
 
     #[test]
