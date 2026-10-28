@@ -1,0 +1,37 @@
+{
+ "description": "Line one.\nLine two.",
+ "factory_description": null,
+ "id": 1001,
+ "is_adult": false,
+ "name": "Sample Item One",
+ "published_at": "2026-01-27T11:09:42.000+09:00",
+ "price": "¥ 500",
+ "url": "https://sample-shop.booth.pm/items/1001",
+ "category": {
+  "id": 7,
+  "name": "Illustration book",
+  "parent": {"name": "Illustration", "url": "https://booth.pm/ja/browse/x"},
+  "url": "https://booth.pm/ja/browse/y"
+ },
+ "images": [
+  {"caption": null, "original": "https://booth.pximg.net/00000000-0000-0000-0000-000000000001/i/1001/aaaa_base_resized.jpg", "resized": "https://booth.pximg.net/c/72x72_a2_g5/00000000-0000-0000-0000-000000000001/i/1001/aaaa_base_resized.jpg"},
+  {"caption": null, "original": "https://booth.pximg.net/00000000-0000-0000-0000-000000000001/i/1001/bbbb_base_resized.png", "resized": "https://booth.pximg.net/c/72x72_a2_g5/00000000-0000-0000-0000-000000000001/i/1001/bbbb_base_resized.png"}
+ ],
+ "order": {"purchased_at": "2026年10月24日", "url": "https://accounts.booth.pm/orders/1"},
+ "gift": null,
+ "shop": {
+  "uuid": "00000000-0000-0000-0000-000000000001",
+  "name": "Sample Shop",
+  "subdomain": "sample-shop",
+  "thumbnail_url": "https://booth.pximg.net/c/48x48/users/1/icon_image/x.jpg",
+  "url": "https://sample-shop.booth.pm/",
+  "verified": false
+ },
+ "tags": [
+  {"name": "tag-a", "url": "https://booth.pm/ja/items?tags%5B%5D=tag-a"},
+  {"name": "tag-b", "url": "https://booth.pm/ja/items?tags%5B%5D=tag-b"}
+ ],
+ "variations": [
+  {"id": 1, "name": null, "price": 500, "status": "already_bought_digital", "type": "digital"}
+ ]
+}
