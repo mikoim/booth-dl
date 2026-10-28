@@ -74,7 +74,10 @@ pub(super) fn find_in_roots(roots: &[PathBuf], profile: Option<&str>) -> Result<
     for p in selected {
         let db = p.dir.join("cookies.sqlite");
         if db.exists() {
-            candidates.extend(read_cookies(&db, &p.name)?);
+            candidates.extend(
+                read_cookies(&db, &p.name)
+                    .with_context(|| format!("read cookies from {}", db.display()))?,
+            );
         }
     }
     newest(candidates, Browser::Firefox, &searched)
@@ -125,7 +128,8 @@ fn read_cookies(db: &Path, profile: &str) -> Result<Vec<Candidate>> {
     let copy = open_copy(db)?;
     let mut statement = copy.conn.prepare(
         "SELECT value, lastAccessed, expiry FROM moz_cookies \
-         WHERE name = ?1 AND host IN (?2, ?3)",
+         WHERE name = ?1 AND host IN (?2, ?3) \
+         AND originAttributes NOT LIKE '%partitionKey=%'",
     )?;
     let rows = statement.query_map((SESSION_COOKIE, BOOTH_HOSTS[0], BOOTH_HOSTS[1]), |row| {
         Ok((
@@ -137,8 +141,7 @@ fn read_cookies(db: &Path, profile: &str) -> Result<Vec<Candidate>> {
     let now = i64::try_from(state::now()).unwrap_or(i64::MAX);
     let mut candidates = Vec::new();
     for row in rows {
-        let (value, last_access, expiry) =
-            row.with_context(|| format!("read cookies from {}", db.display()))?;
+        let (value, last_access, expiry) = row?;
         let expiry_secs = if expiry > EXPIRY_MS_THRESHOLD {
             expiry / 1000
         } else {
@@ -226,6 +229,32 @@ mod tests {
 
         assert_eq!(found.value, "container");
         assert_eq!(found.profile, "default");
+    }
+
+    #[test]
+    fn ignores_partitioned_cookies() {
+        let root = tempfile::tempdir().unwrap();
+        write_profiles_ini(root.path(), &[("default", "a.default")]);
+        write_cookies(
+            root.path(),
+            "a.default",
+            &[
+                (".booth.pm", SESSION_COOKIE, "first-party", 100, FAR_FUTURE),
+                (".booth.pm", SESSION_COOKIE, "partitioned", 900, FAR_FUTURE),
+            ],
+        );
+        let conn = Connection::open(root.path().join("a.default/cookies.sqlite")).unwrap();
+        conn.execute(
+            "UPDATE moz_cookies SET originAttributes = '^partitionKey=%28https%2Cexample.com%29' \
+             WHERE value = 'partitioned'",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let found = find_in_roots(&[root.path().to_path_buf()], None).unwrap();
+
+        assert_eq!(found.value, "first-party");
     }
 
     #[test]
