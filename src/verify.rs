@@ -1,9 +1,10 @@
 //! The `verify` command: re-check downloaded files without network access.
 
 use std::fs;
+use std::io;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::archive::{self, ArchiveStatus};
 use crate::download::md5_file;
@@ -22,11 +23,20 @@ pub fn run(out: &Path) -> Result<VerifySummary> {
         let path = out.join(&record.path);
         eprintln!("Verifying {}", record.path.display());
         summary.checked += 1;
-        let Ok(meta) = fs::metadata(&path) else {
-            summary
-                .problems
-                .push(format!("{}: missing", path.display()));
-            continue;
+        let meta = match fs::metadata(&path) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                summary
+                    .problems
+                    .push(format!("{}: missing", path.display()));
+                continue;
+            }
+            Err(e) => {
+                summary
+                    .problems
+                    .push(format!("{}: cannot read: {e}", path.display()));
+                continue;
+            }
         };
         if meta.len() != record.size {
             summary.problems.push(format!(
@@ -38,7 +48,15 @@ pub fn run(out: &Path) -> Result<VerifySummary> {
             continue;
         }
         if record.checksum == Checksum::Md5Ok {
-            let actual = md5_file(&path).with_context(|| format!("read {}", path.display()))?;
+            let actual = match md5_file(&path) {
+                Ok(actual) => actual,
+                Err(e) => {
+                    summary
+                        .problems
+                        .push(format!("{}: cannot read: {e}", path.display()));
+                    continue;
+                }
+            };
             if actual != record.etag {
                 summary.problems.push(format!(
                     "{}: MD5 {actual} differs from the server's {}",
@@ -48,8 +66,15 @@ pub fn run(out: &Path) -> Result<VerifySummary> {
                 continue;
             }
         }
-        record.archive =
-            archive::test_archive(&path).with_context(|| format!("read {}", path.display()))?;
+        record.archive = match archive::test_archive(&path) {
+            Ok(status) => status,
+            Err(e) => {
+                summary
+                    .problems
+                    .push(format!("{}: cannot read: {e}", path.display()));
+                continue;
+            }
+        };
         if record.archive == ArchiveStatus::Corrupt {
             summary
                 .problems
@@ -134,5 +159,37 @@ mod tests {
         let state = State::load(out.path()).unwrap();
         assert_eq!(state.files["4"].archive, ArchiveStatus::Corrupt);
         assert_eq!(state.files["5"].archive, ArchiveStatus::Ok);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_file_is_a_problem_and_state_is_still_saved() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let out = tempfile::tempdir().unwrap();
+        let mut state = State::default();
+
+        let zip = zip_bytes();
+        fs::write(out.path().join("ok.zip"), &zip).unwrap();
+        state.files.insert("1".into(), record("ok.zip", &zip));
+
+        let secret = out.path().join("secret.pdf");
+        fs::write(&secret, b"secret").unwrap();
+        state
+            .files
+            .insert("2".into(), record("secret.pdf", b"secret"));
+        state.save(out.path()).unwrap();
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let summary = run(out.path());
+        // Restore access so the tempdir can be cleaned up, even on failure.
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).unwrap();
+        let summary = summary.unwrap();
+
+        assert_eq!(summary.checked, 2);
+        assert_eq!(summary.problems.len(), 1, "{:?}", summary.problems);
+        assert!(summary.problems[0].contains("secret.pdf"));
+        let state = State::load(out.path()).unwrap();
+        assert_eq!(state.files["1"].archive, ArchiveStatus::Ok);
     }
 }
