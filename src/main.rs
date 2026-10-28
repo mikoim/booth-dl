@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
-use booth_dl::client::BoothClient;
+use booth_dl::client::{BoothClient, Fatal};
 use booth_dl::config::{self, SESSION_COOKIE};
 use booth_dl::library::Tab;
 use booth_dl::{sync, verify};
@@ -77,7 +77,14 @@ fn login() -> Result<()> {
         bail!("no value entered");
     }
     let client = BoothClient::new(value);
-    client.get_text(&Tab::Purchases.url(client.accounts_url(), 1))?;
+    if let Err(e) = client.get_text(&Tab::Purchases.url(client.accounts_url(), 1)) {
+        if matches!(e.downcast_ref::<Fatal>(), Some(Fatal::SessionExpired)) {
+            bail!(
+                "BOOTH rejected this cookie; copy the current {SESSION_COOKIE} value from your browser and try again"
+            );
+        }
+        return Err(e);
+    }
     config::save_session(&client.session())?;
     println!(
         "Logged in. Session saved to {}",
