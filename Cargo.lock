@@ -111,18 +111,23 @@ dependencies = [
 name = "booth-dl"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "anyhow",
+ "cbc",
  "clap",
  "dirs",
  "flate2",
  "indicatif",
  "md-5",
+ "pbkdf2",
  "rpassword",
  "rusqlite",
  "scraper",
  "serde",
  "serde_json",
  "sevenz-rust2",
+ "sha1",
+ "sha2",
  "tar",
  "tempfile",
  "ureq",

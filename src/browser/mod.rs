@@ -3,6 +3,8 @@
 //! Cookie values are secrets: nothing in this module prints them, and
 //! `FoundSession`'s `Debug` output redacts the value.
 
+#[cfg(target_os = "linux")]
+mod chromium;
 mod firefox;
 
 use std::fmt;
@@ -60,8 +62,16 @@ pub fn find_session(browser: Browser, profile: Option<&str>) -> Result<FoundSess
     let home = dirs::home_dir().context("cannot determine the home directory")?;
     match browser {
         Browser::Firefox => firefox::find_in_roots(&firefox::roots(&home), profile),
-        // Chrome-family support is added together with its decryption.
-        _ => bail!("reading cookies from {browser} is not supported yet"),
+        #[cfg(target_os = "linux")]
+        Browser::Chrome | Browser::Chromium | Browser::Brave | Browser::Edge => {
+            chromium::find_session(browser, profile)
+        }
+        #[cfg(not(target_os = "linux"))]
+        _ => bail!(
+            "reading cookies from {browser} is supported only on Linux \
+             (on Windows its cookies use App-Bound Encryption); \
+             use --from-browser firefox or paste the cookie with `booth-dl login`"
+        ),
     }
 }
 
