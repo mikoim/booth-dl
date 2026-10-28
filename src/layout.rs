@@ -45,8 +45,12 @@ pub fn item_dir_name(item_id: u64, title: &str) -> String {
 
 /// File name used when `file_name` is already taken: `<stem> (<id>).<ext>`.
 pub fn with_id_suffix(file_name: &str, id: u64) -> String {
-    let (stem, ext) = split_extension(file_name);
-    sanitize_component(&format!("{stem} ({id}){ext}"))
+    let sanitized = sanitize_component(file_name);
+    let (stem, ext) = split_extension(&sanitized);
+    let suffix = format!(" ({id})");
+    // Only the stem is truncated, so the ID suffix and extension always survive.
+    let stem = truncate_at_char_boundary(stem, MAX_COMPONENT_BYTES - suffix.len() - ext.len());
+    format!("{stem}{suffix}{ext}")
 }
 
 /// Splits `name` into stem and extension (the extension keeps its dot).
@@ -62,12 +66,17 @@ fn truncate_keep_extension(name: &str, max: usize) -> String {
         return name.to_string();
     }
     let (stem, ext) = split_extension(name);
-    let mut end = max - ext.len();
-    while !stem.is_char_boundary(end) {
+    let stem = truncate_at_char_boundary(stem, max - ext.len()).trim_end_matches(['.', ' ']);
+    format!("{stem}{ext}")
+}
+
+/// Returns the longest prefix of `s` that is at most `max` bytes and ends on a char boundary.
+fn truncate_at_char_boundary(s: &str, max: usize) -> &str {
+    let mut end = max.min(s.len());
+    while !s.is_char_boundary(end) {
         end -= 1;
     }
-    let stem = stem[..end].trim_end_matches(['.', ' ']);
-    format!("{stem}{ext}")
+    &s[..end]
 }
 
 #[cfg(test)]
@@ -119,5 +128,13 @@ mod tests {
     fn adds_id_suffix_before_extension() {
         assert_eq!(with_id_suffix("data.zip", 7), "data (7).zip");
         assert_eq!(with_id_suffix("README", 7), "README (7)");
+    }
+
+    #[test]
+    fn id_suffix_survives_truncation() {
+        let name = format!("{}.zip", "あ".repeat(100));
+        let result = with_id_suffix(&name, 7);
+        assert!(result.len() <= MAX_COMPONENT_BYTES);
+        assert!(result.ends_with(" (7).zip"));
     }
 }
