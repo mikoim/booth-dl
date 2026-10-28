@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!-- Last library page with dummy values. The card has no item link (as for an
+     unpublished item), so the item ID must come from the thumbnail URL. -->
+<html lang="ja">
+<body>
+<div class="bg-white p-16 desktop:rounded-8 desktop:py-24 desktop:px-40">
+  <div class="flex gap-8 desktop:gap-16 border-b border-border300 pb-16">
+    <img class="l-library-item-thumbnail" src="https://booth.pximg.net/c/300x300_a2_g5/00000000-0000-0000-0000-000000000003/i/1003/cccc_base_resized.jpg" width="80" height="80" />
+    <div>
+      <div class="text-text-default font-bold text-16 mb-8 break-all">Unpublished Item</div>
+      <a target="_blank" class="no-underline w-fit flex gap-4 items-center" rel="noopener" href="https://sample-shop.booth.pm/">
+        <div class="text-14 text-text-gray600 break-all">Sample Shop</div>
+      </a>
+    </div>
+  </div>
+  <div class="mt-16">
+    <div class="mt-16 desktop:flex desktop:justify-between desktop:items-center">
+      <div class="min-w-0 break-words whitespace-pre-line">
+        <div class="text-14">three.zip</div>
+      </div>
+      <div class="mt-8 desktop:mt-0 shrink-0 flex items-center gap-8">
+        <div><div class="js-download-button" data-href="https://booth.pm/downloadables/2004" data-is-external="false" data-label="ダウンロード" data-test="downloadable"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- A card without any download button booth-dl understands. -->
+<div class="bg-white p-16 desktop:rounded-8 desktop:py-24 desktop:px-40">
+  <div class="flex gap-8 desktop:gap-16 border-b border-border300 pb-16">
+    <a target="_blank" rel="noopener" href="https://booth.pm/ja/items/1005">
+      <img class="l-library-item-thumbnail" src="https://booth.pximg.net/c/300x300_a2_g5/00000000-0000-0000-0000-000000000005/i/1005/eeee_base_resized.jpg" width="80" height="80" />
+    </a>
+    <div>
+      <a target="_blank" class="no-underline" rel="noopener" href="https://booth.pm/ja/items/1005">
+        <div class="text-text-default font-bold text-16 mb-8 break-all">Item Without Downloads</div>
+      </a>
+    </div>
+  </div>
+</div>
+<div class="pager border-0">
+  <a rel="prev" class="nav-item" href="/library?page=1">prev</a>
+  <a class="nav-item" href="/library?page=1">1</a>
+  <a class="nav-item current" href="/library?page=2">2</a>
+</div>
+</body>
+</html>

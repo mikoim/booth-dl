@@ -4,6 +4,7 @@ pub mod archive;
 pub mod client;
 pub mod config;
 pub mod layout;
+pub mod library;
 pub mod state;
 
 #[cfg(test)]
