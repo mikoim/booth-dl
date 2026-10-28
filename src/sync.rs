@@ -104,7 +104,9 @@ fn plan_jobs(
     options: &SyncOptions,
     summary: &mut Summary,
 ) -> Vec<Job> {
-    let mut used: HashSet<PathBuf> = state.files.values().map(|f| f.path.clone()).collect();
+    // Compared case-insensitively: `Data.zip` and `data.zip` are one file on Windows.
+    let key_of = |path: &Path| path.to_string_lossy().to_lowercase();
+    let mut used: HashSet<String> = state.files.values().map(|f| key_of(&f.path)).collect();
     let mut jobs = Vec::new();
     for item in items {
         let files_dir = state.items[&item.item_id].dir.join("files");
@@ -126,10 +128,10 @@ fn plan_jobs(
                 }
                 None => {
                     let mut path = files_dir.join(sanitize_component(&file.name));
-                    if used.contains(&path) {
+                    if used.contains(&key_of(&path)) {
                         path = files_dir.join(with_id_suffix(&file.name, file.downloadable_id));
                     }
-                    used.insert(path.clone());
+                    used.insert(key_of(&path));
                     Job {
                         key,
                         item_id: item.item_id,
@@ -182,7 +184,7 @@ fn run_jobs(
                         }
                         Err(e) => {
                             let message = format!("{}: {e:#}", job.path.display());
-                            let _ = multi.println(format!("Failed {message}"));
+                            multi.suspend(|| eprintln!("Failed {message}"));
                             shared_summary.lock().unwrap().failures.push(message);
                             continue;
                         }
@@ -193,7 +195,7 @@ fn run_jobs(
                     }
                     let updated = job.recorded_etag.is_some();
                     let verb = if updated { "Updated" } else { "Downloaded" };
-                    let _ = multi.println(format!("{verb} {}", record.path.display()));
+                    multi.suspend(|| eprintln!("{verb} {}", record.path.display()));
                     let mut summary = shared_summary.lock().unwrap();
                     if updated {
                         summary.updated += 1;
@@ -477,6 +479,50 @@ mod tests {
             vec![
                 PathBuf::from("S/1_T/files/a.zip"),
                 PathBuf::from("S/1_T/files/a (11).zip")
+            ]
+        );
+    }
+
+    #[test]
+    fn names_differing_only_in_case_get_an_id_suffix() {
+        let items = vec![LibraryItem {
+            item_id: 1,
+            title: "T".into(),
+            shop_name: "S".into(),
+            files: vec![
+                LibraryFile {
+                    downloadable_id: 10,
+                    format: None,
+                    name: "Data.zip".into(),
+                },
+                LibraryFile {
+                    downloadable_id: 11,
+                    format: None,
+                    name: "data.zip".into(),
+                },
+            ],
+        }];
+        let mut state = State::default();
+        state.items.insert(
+            1,
+            ItemRecord {
+                dir: "S/1_T".into(),
+                page_saved_at: None,
+            },
+        );
+        let out = tempfile::tempdir().unwrap();
+        let jobs = plan_jobs(
+            &items,
+            &state,
+            &options(out.path(), false),
+            &mut Summary::default(),
+        );
+        let paths: Vec<PathBuf> = jobs.into_iter().map(|j| j.path).collect();
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("S/1_T/files/Data.zip"),
+                PathBuf::from("S/1_T/files/data (11).zip")
             ]
         );
     }

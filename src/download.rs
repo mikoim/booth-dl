@@ -91,7 +91,7 @@ pub fn download_file(
                 if is_fatal(&e) || attempt >= MAX_ATTEMPTS {
                     return Err(e);
                 }
-                progress.println(format!("retrying {}: {e:#}", dest.display()));
+                progress.suspend(|| eprintln!("retrying {}: {e:#}", dest.display()));
                 attempt += 1;
             }
         }
