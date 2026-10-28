@@ -11,7 +11,7 @@ Mirror the digital items in your [BOOTH](https://booth.pm/) library to a local d
 
 1. Log in to BOOTH in your browser.
 2. Run `booth-dl login --from-browser <browser>` to read the session cookie from that browser.
-   - Browsers: `firefox` (Linux and Windows); `chrome`, `chromium`, `brave` and `edge` (Linux only, using `secret-tool` from libsecret to unlock the cookie).
+   - Browsers: `firefox` (Linux and Windows); `chrome`, `chromium`, `brave` and `edge` (Linux only, using `secret-tool` from libsecret to unlock the cookie). These need a freedesktop Secret Service keyring (for example GNOME Keyring); KWallet is not supported.
    - Every profile is searched and the most recently used session wins. `--profile <name>` limits the search to one profile.
    - Alternatively, run `booth-dl login` and paste the value of the `_plaza_session_nktz7u` cookie. You can copy it from the developer tools: Application or Storage → Cookies → `https://booth.pm`.
    - The session is stored in `~/.config/booth-dl/session` (Linux) or `%APPDATA%\booth-dl\session` (Windows).
