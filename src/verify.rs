@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::archive::{self, ArchiveStatus};
 use crate::download::md5_file;
@@ -17,6 +17,14 @@ pub struct VerifySummary {
 }
 
 pub fn run(out: &Path) -> Result<VerifySummary> {
+    let state_path = State::path(out);
+    if !state_path.exists() {
+        bail!(
+            "no state file at {}; run `booth-dl sync --out {}` first",
+            state_path.display(),
+            out.display()
+        );
+    }
     let mut state = State::load(out)?;
     let mut summary = VerifySummary::default();
     for record in state.files.values_mut() {
@@ -59,7 +67,7 @@ pub fn run(out: &Path) -> Result<VerifySummary> {
             };
             if actual != record.etag {
                 summary.problems.push(format!(
-                    "{}: MD5 {actual} differs from the server's {}",
+                    "{}: MD5 {actual} differs from the server's {}; delete it and run `booth-dl sync` to download it again",
                     path.display(),
                     record.etag
                 ));
@@ -109,6 +117,14 @@ mod tests {
             archive: ArchiveStatus::NotApplicable,
             downloaded_at: 0,
         }
+    }
+
+    #[test]
+    fn missing_state_file_is_an_error_and_creates_nothing() {
+        let out = tempfile::tempdir().unwrap();
+        let err = run(out.path()).unwrap_err();
+        assert!(format!("{err:#}").contains("booth-dl sync"), "{err:#}");
+        assert!(!out.path().join(".booth-dl").exists());
     }
 
     fn zip_bytes() -> Vec<u8> {

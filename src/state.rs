@@ -55,7 +55,8 @@ pub enum Checksum {
 }
 
 impl State {
-    fn path(out: &Path) -> PathBuf {
+    /// Location of the state file below the output directory.
+    pub fn path(out: &Path) -> PathBuf {
         out.join(".booth-dl").join("state.json")
     }
 
