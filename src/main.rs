@@ -113,7 +113,7 @@ fn login(from_browser: Option<Browser>, profile: Option<&str>) -> Result<()> {
     if value.is_empty() {
         bail!("no value entered");
     }
-    let client = BoothClient::new(value);
+    let client = BoothClient::new(value)?;
     if let Err(e) = client.get_text(&Tab::Purchases.url(client.accounts_url(), 1)) {
         if matches!(e.downcast_ref::<Fatal>(), Some(Fatal::SessionExpired)) {
             bail!(
@@ -133,7 +133,7 @@ fn login(from_browser: Option<Browser>, profile: Option<&str>) -> Result<()> {
 
 fn sync_command(options: sync::SyncOptions) -> Result<bool> {
     let session = config::load_session()?;
-    let client = BoothClient::new(session.value.clone());
+    let client = BoothClient::new(session.value.clone())?;
     let result = sync::run(&client, &options);
     // BOOTH re-issues the cookie on every response; keep the newest one.
     if !session.from_env && client.session() != session.value {

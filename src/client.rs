@@ -1,16 +1,19 @@
 //! HTTP access to BOOTH: session cookie, throttling, retries and fatal-error detection.
 
+use std::env::{self, VarError};
 use std::fmt;
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use ureq::Body;
 use ureq::http::Response;
 
 use crate::config::SESSION_COOKIE;
 
+/// Points booth-dl at a fake BOOTH on this machine (used to record the demo).
+pub const BASE_URL_ENV: &str = "BOOTH_DL_BASE_URL";
 const BOOTH_URL: &str = "https://booth.pm";
 const ACCOUNTS_URL: &str = "https://accounts.booth.pm";
 const USER_AGENT: &str = concat!("booth-dl/", env!("CARGO_PKG_VERSION"));
@@ -63,14 +66,30 @@ pub struct BoothClient {
 }
 
 impl BoothClient {
-    pub fn new(session: String) -> BoothClient {
-        Self::build(
-            session,
-            BOOTH_URL,
-            ACCOUNTS_URL,
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-        )
+    /// A client for booth.pm, or for the loopback server named by [`BASE_URL_ENV`].
+    pub fn new(session: String) -> Result<BoothClient> {
+        let retry_delay = Duration::from_secs(2);
+        match env::var(BASE_URL_ENV) {
+            Err(VarError::NotPresent) => Ok(Self::build(
+                session,
+                BOOTH_URL,
+                ACCOUNTS_URL,
+                Duration::from_secs(1),
+                retry_delay,
+            )),
+            Err(VarError::NotUnicode(_)) => Err(base_url_error()),
+            Ok(value) => {
+                let base = loopback_base_url(&value)?;
+                // The page interval is courtesy towards booth.pm; a local server needs none.
+                Ok(Self::build(
+                    session,
+                    &base,
+                    &base,
+                    Duration::ZERO,
+                    retry_delay,
+                ))
+            }
+        }
     }
 
     /// Client that sends every request to `base_url`, without delays.
@@ -257,6 +276,26 @@ impl BoothClient {
     }
 }
 
+/// Validates a [`BASE_URL_ENV`] value. The session cookie is sent there, so only
+/// plain HTTP to a loopback host with an explicit port is allowed.
+fn loopback_base_url(value: &str) -> Result<String> {
+    let rest = value.strip_prefix("http://").ok_or_else(base_url_error)?;
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let (host, port) = rest.rsplit_once(':').ok_or_else(base_url_error)?;
+    if !matches!(host, "127.0.0.1" | "localhost" | "[::1]")
+        || port.is_empty()
+        || !port.bytes().all(|b| b.is_ascii_digit())
+        || !matches!(port.parse::<u16>(), Ok(p) if p > 0)
+    {
+        return Err(base_url_error());
+    }
+    Ok(format!("http://{host}:{port}"))
+}
+
+fn base_url_error() -> anyhow::Error {
+    anyhow!("{BASE_URL_ENV} must be a loopback URL such as http://127.0.0.1:8765")
+}
+
 fn header<'a>(response: &'a Response<Body>, name: &str) -> Option<&'a str> {
     response.headers().get(name).and_then(|v| v.to_str().ok())
 }
@@ -296,6 +335,49 @@ mod tests {
 
     use super::*;
     use crate::test_server::{Reply, TestServer};
+
+    #[test]
+    fn accepts_loopback_base_urls() {
+        for (value, expected) in [
+            ("http://127.0.0.1:8765", "http://127.0.0.1:8765"),
+            ("http://127.0.0.1:8765/", "http://127.0.0.1:8765"),
+            ("http://localhost:1", "http://localhost:1"),
+            ("http://[::1]:65535", "http://[::1]:65535"),
+        ] {
+            assert_eq!(loopback_base_url(value).unwrap(), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn rejects_other_base_urls() {
+        for value in [
+            "https://127.0.0.1:8765",
+            "http://example.com:80",
+            "http://127.0.0.1",
+            "http://127.0.0.1:",
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:70000",
+            "http://127.0.0.1:8765/x",
+            "http://127.0.0.1:8765?x=1",
+            "http://user@127.0.0.1:8765",
+            "http://127.0.0.2:8765",
+        ] {
+            let err = loopback_base_url(value).unwrap_err().to_string();
+            assert!(err.contains("loopback URL"), "{value}: {err}");
+        }
+    }
+
+    #[test]
+    fn new_targets_booth_pm_by_default() {
+        // Mutating the environment is unsafe in tests that run in parallel, so
+        // this only checks the default when the variable is not set.
+        if env::var_os(BASE_URL_ENV).is_some() {
+            return;
+        }
+        let client = BoothClient::new("s".into()).unwrap();
+        assert_eq!(client.booth_url(), "https://booth.pm");
+        assert_eq!(client.accounts_url(), "https://accounts.booth.pm");
+    }
 
     #[test]
     fn sends_cookie_and_user_agent_and_captures_rotation() {
