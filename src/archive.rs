@@ -2,6 +2,7 @@
 
 use std::fs::File;
 use std::io::{self, Read};
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,7 @@ pub enum ArchiveStatus {
     /// The archive could not be read completely.
     #[serde(rename = "corrupt")]
     Corrupt,
-    /// Not an archive, or a format we don't test (e.g. rar).
+    /// Not an archive, or a format or method we can't test (e.g. rar).
     #[serde(rename = "n/a")]
     NotApplicable,
 }
@@ -37,18 +38,22 @@ pub fn test_archive(path: &Path) -> io::Result<ArchiveStatus> {
     let header = &header[..header_len];
 
     let file = File::open(path)?;
-    let status = if header.starts_with(b"PK\x03\x04") || header.starts_with(b"PK\x05\x06") {
-        test_zip(file)
-    } else if header.starts_with(SEVEN_ZIP_MAGIC) {
-        test_7z(path)
-    } else if header.starts_with(GZIP_MAGIC) {
-        test_gzip(file)
-    } else if header.get(TAR_MAGIC_OFFSET..TAR_MAGIC_OFFSET + 5) == Some(b"ustar") {
-        test_tar(file)
-    } else {
-        ArchiveStatus::NotApplicable
-    };
-    Ok(status)
+    // The parsers read untrusted data; a panic inside one must not abort the
+    // whole run, so it counts as a corrupt archive.
+    let tested = panic::catch_unwind(AssertUnwindSafe(|| {
+        if header.starts_with(b"PK\x03\x04") || header.starts_with(b"PK\x05\x06") {
+            test_zip(file)
+        } else if header.starts_with(SEVEN_ZIP_MAGIC) {
+            test_7z(path)
+        } else if header.starts_with(GZIP_MAGIC) {
+            test_gzip(file)
+        } else if header.get(TAR_MAGIC_OFFSET..TAR_MAGIC_OFFSET + 5) == Some(b"ustar") {
+            test_tar(file)
+        } else {
+            ArchiveStatus::NotApplicable
+        }
+    }));
+    Ok(tested.unwrap_or(ArchiveStatus::Corrupt))
 }
 
 fn read_up_to(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
@@ -65,8 +70,12 @@ fn read_up_to(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
 }
 
 fn test_zip(file: File) -> ArchiveStatus {
-    let Ok(mut archive) = zip::ZipArchive::new(file) else {
-        return ArchiveStatus::Corrupt;
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(archive) => archive,
+        Err(ZipError::UnsupportedArchive(_) | ZipError::CompressionMethodNotSupported(_)) => {
+            return ArchiveStatus::NotApplicable;
+        }
+        Err(_) => return ArchiveStatus::Corrupt,
     };
     let mut encrypted = false;
     for i in 0..archive.len() {
@@ -79,6 +88,10 @@ fn test_zip(file: File) -> ArchiveStatus {
             }
             Err(ZipError::UnsupportedArchive(msg)) if msg == ZipError::PASSWORD_REQUIRED => {
                 encrypted = true;
+            }
+            // A method the zip crate cannot decode says nothing about the file.
+            Err(ZipError::UnsupportedArchive(_) | ZipError::CompressionMethodNotSupported(_)) => {
+                return ArchiveStatus::NotApplicable;
             }
             Err(_) => return ArchiveStatus::Corrupt,
         }
@@ -102,6 +115,13 @@ fn test_7z(path: &Path) -> ArchiveStatus {
     match result {
         Ok(()) => ArchiveStatus::Ok,
         Err(Error::PasswordRequired | Error::MaybeBadPassword(_)) => ArchiveStatus::Encrypted,
+        // We cannot decode this compression method, which says nothing about the file.
+        Err(
+            Error::UnsupportedCompressionMethod(_)
+            | Error::Unsupported(_)
+            | Error::UnsupportedVersion { .. }
+            | Error::ExternalUnsupported,
+        ) => ArchiveStatus::NotApplicable,
         Err(_) => ArchiveStatus::Corrupt,
     }
 }
@@ -152,6 +172,30 @@ mod tests {
         writer.write_all(&payload()).unwrap();
         writer.finish().unwrap();
         path
+    }
+
+    #[test]
+    fn unsupported_zip_method_is_not_applicable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(io::Cursor::new(&mut bytes));
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            writer.start_file("a.txt", options).unwrap();
+            writer.write_all(&[7u8; 1000]).unwrap();
+            writer.finish().unwrap();
+        }
+        let find = |sig: &[u8]| bytes.windows(4).position(|w| w == sig).unwrap();
+        // Reduce (3) is not supported by the zip crate (Implode is).
+        let local = find(b"PK\x03\x04") + 8;
+        let central = find(b"PK\x01\x02") + 10;
+        for at in [local, central] {
+            bytes[at..at + 2].copy_from_slice(&3u16.to_le_bytes());
+        }
+        let path = dir.path().join("implode.zip");
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(test_archive(&path).unwrap(), ArchiveStatus::NotApplicable);
     }
 
     fn write_tar_gz(dir: &Path) -> PathBuf {
