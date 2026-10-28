@@ -7,6 +7,16 @@ Mirror the digital items in your [BOOTH](https://booth.pm/) library to a local d
 - Verifies each file against the server's MD5 (ETag) and test-extracts zip, 7z, tar and tar.gz (including `.unitypackage`) archives.
 - Saves each item's sales page: `item.json`, `item.html`, images and `description.md`.
 
+![booth-dl demo](demo/demo.gif)
+
+## Install
+
+With a [Rust toolchain](https://rustup.rs/) installed:
+
+```sh
+cargo install --locked --git https://github.com/mikoim/booth-dl
+```
+
 ## Usage
 
 1. Log in to BOOTH in your browser.
