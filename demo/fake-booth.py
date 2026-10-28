@@ -169,7 +169,8 @@ class Handler(BaseHTTPRequestHandler):
             etag = '"' + hashlib.md5(content).hexdigest() + '"'
             return self.reply(200, content, "application/octet-stream", [("ETag", etag)])
         if path.startswith("/images/"):
-            item = ITEMS.get(int(path[len("/images/"):].removesuffix(".png") or 0))
+            name = path[len("/images/"):].removesuffix(".png")
+            item = ITEMS.get(int(name)) if name.isdigit() else None
             return self.reply(200, png(item["color"]), "image/png") if item else self.reply(404)
 
         if f"{COOKIE}={SESSION}" not in self.headers.get("Cookie", ""):
@@ -199,6 +200,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def write_firefox_profile(home):
     root = home / ".config" / "mozilla" / "firefox"
+    # Never overwrite an existing Firefox setup, e.g. a real one under a real home.
+    if root.exists():
+        sys.exit(f'{root} already exists; pass a fresh directory such as "$(mktemp -d)" as DEMO_HOME')
     profile = root / "demo.default-release"
     profile.mkdir(parents=True, exist_ok=True)
     (root / "profiles.ini").write_text(

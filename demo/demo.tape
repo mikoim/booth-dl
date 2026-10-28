@@ -81,3 +81,4 @@ Sleep 3s
 
 Hide
 Type `kill %1; cd /; rm -rf "$DEMO_HOME"` Enter
+Sleep 1s
